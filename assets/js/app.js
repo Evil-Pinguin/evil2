@@ -300,36 +300,89 @@
 
   function currentTheme() { return DB.get().theme || systemTheme(); }
 
+  var swapTimer = null;
+
+  /* Смена темы — это смена значений CSS-переменных. Если свойство одновременно
+     объявлено с transition и берёт значение из var(), браузер может оставить
+     старый цвет в отрисованном слое (баг Blink/WebKit). Поэтому на время смены
+     темы переходы отключаются, а перерисовка форсируется. */
+  function forceRepaint() {
+    var root = document.documentElement;
+    void root.offsetHeight;
+    if (document.body) void document.body.offsetHeight;
+    var host = document.getElementById('app');
+    if (host) void host.offsetHeight;
+    var end = function () { root.classList.remove('theme-swap'); };
+    clearTimeout(swapTimer);
+    swapTimer = setTimeout(end, 260);
+    if (window.requestAnimationFrame) window.requestAnimationFrame(end);
+  }
+
   function applyTheme() {
     var t = currentTheme();
     state.theme = t;
     var root = document.documentElement;
+    var body = document.body;
+
+    root.classList.add('theme-swap');
     root.setAttribute('data-theme', t);
-    root.style.colorScheme = t;
+
+    /* Атрибут ставится и на <body>. Причина: браузер (Blink) не всегда
+       инвалидирует наследование CSS-переменных от :root — на html значения
+       обновляются, а внутри body остаются старые, и страница выглядит
+       «непереключившейся». С атрибутом на body переменные пересчитываются
+       для самого body, а от него наследуются всеми элементами. */
+    if (body) body.setAttribute('data-theme', t);
+
+    /* Фон-канва тоже кэшируется браузером: подставляем вычисленный цвет явно. */
+    var bg = '';
+    try { bg = getComputedStyle(root).getPropertyValue('--bg').trim(); } catch (e) { bg = ''; }
+    root.style.backgroundColor = bg || '';
+    if (body) body.style.backgroundColor = bg || '';
+
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'light' ? '#f6f7f4' : '#08090b');
+    if (meta) meta.setAttribute('content', bg || (t === 'light' ? '#f6f7f4' : '#08090b'));
     syncThemeButtons();
+    forceRepaint();
   }
 
+  function themeActionLabel() {
+    return state.theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему';
+  }
+
+  /* кнопка показывает, на какую тему переключит; текущая — в подписи панели */
   function syncThemeButtons() {
     var dark = state.theme === 'dark';
-    var title = dark ? 'Сейчас тёмная тема — включить светлую (t)' : 'Сейчас светлая тема — включить тёмную (t)';
+    var label = dark ? 'Светлая тема' : 'Тёмная тема';
+    var title = (dark ? 'Включить светлую тему' : 'Включить тёмную тему') + ' (t) · сейчас ' +
+      (dark ? 'тёмная' : 'светлая');
     Array.prototype.forEach.call(document.querySelectorAll('[data-act="theme"]'), function (el) {
-      el.setAttribute('aria-pressed', String(dark));
       el.setAttribute('title', title);
       el.setAttribute('aria-label', title);
       var icon = el.querySelector('.themebtn__icon');
-      if (icon) icon.textContent = dark ? '☾' : '☀';
-      var label = el.querySelector('.themebtn__label');
-      if (label) label.textContent = dark ? 'Тёмная тема' : 'Светлая тема';
+      if (icon) icon.textContent = dark ? '☀' : '☾';
+      var text = el.querySelector('.themebtn__label');
+      if (text) text.textContent = label;
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-act="theme-set"]'), function (el) {
+      var on = el.getAttribute('data-theme') === state.theme;
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+    var now = document.getElementById('theme-now');
+    if (now) now.textContent = state.theme === 'dark' ? 'тёмная' : 'светлая';
+  }
+
+  function setTheme(t) {
+    if (t !== 'light' && t !== 'dark') return;
+    if (t === state.theme) return;
+    DB.set({ theme: t });
+    applyTheme();
+    toast(t === 'light' ? 'Включена светлая тема' : 'Включена тёмная тема');
   }
 
   function toggleTheme() {
-    var next = state.theme === 'dark' ? 'light' : 'dark';
-    DB.set({ theme: next });
-    applyTheme();
-    toast(next === 'light' ? 'Включена светлая тема' : 'Включена тёмная тема');
+    setTheme(state.theme === 'dark' ? 'light' : 'dark');
   }
 
   /* ============================== состояние ============================== */
@@ -559,9 +612,11 @@
   }
 
   function themeButton(wide) {
-    return '<button class="themebtn' + (wide ? ' themebtn--wide' : '') + '" data-act="theme" type="button" aria-pressed="false">' +
-      '<span class="themebtn__icon" aria-hidden="true">☾</span>' +
-      '<span class="themebtn__label">Тёмная тема</span>' +
+    var dark = state.theme === 'dark';
+    return '<button class="themebtn' + (wide ? ' themebtn--wide' : '') + '" data-act="theme" type="button"' +
+      ' title="' + esc(themeActionLabel()) + ' (t)">' +
+      '<span class="themebtn__icon" aria-hidden="true">' + (dark ? '☀' : '☾') + '</span>' +
+      '<span class="themebtn__label">' + (dark ? 'Светлая тема' : 'Тёмная тема') + '</span>' +
     '</button>';
   }
 
@@ -1533,6 +1588,16 @@
             '<h2 class="modal__title" id="modal-title">Локальное сохранение</h2>' +
             '<button class="ghost" data-act="panel-close" aria-label="Закрыть">✕</button>' +
           '</div>' +
+          '<div class="theme-pick">' +
+            '<span class="theme-pick__lbl">Тема оформления · сейчас <b id="theme-now">' +
+              (state.theme === 'dark' ? 'тёмная' : 'светлая') + '</b></span>' +
+            '<div class="seg">' +
+              '<button class="seg__btn' + (state.theme === 'dark' ? ' is-active' : '') + '" data-act="theme-set" data-theme="dark" aria-pressed="' + (state.theme === 'dark') + '">' +
+                '<span aria-hidden="true">☾</span> Тёмная</button>' +
+              '<button class="seg__btn' + (state.theme === 'light' ? ' is-active' : '') + '" data-act="theme-set" data-theme="light" aria-pressed="' + (state.theme === 'light') + '">' +
+                '<span aria-hidden="true">☀</span> Светлая</button>' +
+            '</div>' +
+          '</div>' +
           '<p class="modal__text">Прогресс хранится в localStorage этого браузера: тема, выбранный день, прочитанные карточки, ' +
             'лучшие результаты, отметки «повторить», сложные вопросы, незавершённая сессия и статистика.</p>' +
           '<div class="save-grid">' +
@@ -1698,7 +1763,6 @@
 
   function render() {
     document.body.dataset.mode = state.mode;
-    document.body.dataset.theme = state.theme;
     var tb = document.querySelector('.topbar');
     if (tb) tb.hidden = state.mode === 'home';
 
@@ -1786,6 +1850,7 @@
     var act = t.getAttribute('data-act');
 
     if (act === 'theme') { toggleTheme(); return; }
+    if (act === 'theme-set') { setTheme(t.getAttribute('data-theme')); return; }
 
     if (act === 'panel') {
       var want = t.getAttribute('data-panel');

@@ -1,15 +1,38 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#08090b">
-<meta name="description" content="D01T01 — тренажёр по Linux и Git: чтение материала, вопросы по командам и разбор кода. Quest 1–10.">
+<meta name="description" content="D01T01 — тренажёр по Linux и Git: чтение материала, вопросы по командам и разбор кода. Подсказки, отметки «повторить», повторение сложного, две темы и локальное сохранение прогресса. Quest 1–10.">
 <title>D01T01 — Знакомство с Linux и Git-системой</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d10'/%3E%3Cpath d='M9 12l4 4-4 4M16 20h7' stroke='%23c8ff4d' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preload" href="assets/css/style.css" as="style">
 <link rel="stylesheet" href="assets/css/style.css">
+<script>
+/* тема до первой отрисовки — чтобы не было вспышки чужой темы */
+(function () {
+  var theme = '';
+  try {
+    var raw = JSON.parse(localStorage.getItem('d01t01.progress.v2') || 'null');
+    if (raw && (raw.theme === 'light' || raw.theme === 'dark')) theme = raw.theme;
+  } catch (e) { /* ignore */ }
+  if (!theme) {
+    try {
+      theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    } catch (e2) { theme = 'dark'; }
+  }
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.style.colorScheme = theme;
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? '#f6f7f4' : '#08090b');
+  /* тот же атрибут на <body> — страховка от невалидации наследования переменных */
+  document.addEventListener('DOMContentLoaded', function () {
+    document.body.setAttribute('data-theme', document.documentElement.getAttribute('data-theme'));
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -19,9 +42,21 @@
     <b>D01T01</b><span class="brand__label">&nbsp;Linux &amp; Git</span>
   </a>
   <div class="topbar__chips" id="topchips"></div>
+  <div class="topbar__tools">
+    <button class="themebtn" data-act="panel" data-panel="save" type="button" title="Локальное сохранение прогресса" aria-label="Локальное сохранение прогресса">
+      <span class="themebtn__icon" aria-hidden="true">⤓</span>
+      <span class="themebtn__label">Сохранение</span>
+    </button>
+    <button class="themebtn" data-act="theme" type="button" title="Включить светлую тему (t)" aria-label="Включить светлую тему">
+      <span class="themebtn__icon" aria-hidden="true">☀</span>
+      <span class="themebtn__label">Светлая тема</span>
+    </button>
+  </div>
 </header>
 
 <main id="app" aria-live="polite"></main>
+
+<div class="modal-host" id="modal"></div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
